@@ -2,13 +2,13 @@ import {lessonById,lessons,zoneCount} from './lessons';
 import {newGame,evaluate,counts,poolCount,type Game} from './game';
 export const STORAGE_KEY='animal-picnic-v1';
 export interface RecordEntry {helped:boolean;attempts:number;completedAt:string}
-export interface Saved {version:1;progress:Record<string,RecordEntry>;game:Game|null;sound:boolean;reduceMotion:boolean}
-export const fresh=():Saved=>({version:1,progress:{},game:null,sound:true,reduceMotion:false});
+export interface Saved {version:2;progress:Record<string,RecordEntry>;game:Game|null;sound:boolean;reduceMotion:boolean;fastMotion:boolean}
+export const fresh=():Saved=>({version:2,progress:{},game:null,sound:true,reduceMotion:false,fastMotion:false});
 export function parseSaved(raw:string|null):Saved {
   const result=fresh();if(!raw)return result;
   try{
-    const data=JSON.parse(raw);if(!data||data.version!==1)return result;
-    result.sound=typeof data.sound==='boolean'?data.sound:true;result.reduceMotion=data.reduceMotion===true;
+    const data=JSON.parse(raw);if(!data||![1,2].includes(data.version))return result;
+    result.sound=typeof data.sound==='boolean'?data.sound:true;result.reduceMotion=data.reduceMotion===true;result.fastMotion=data.fastMotion===true;
     for(const l of lessons){const p=data.progress?.[l.id];if(p&&typeof p.helped==='boolean'&&Number.isInteger(p.attempts)&&p.attempts>=0&&typeof p.completedAt==='string')result.progress[l.id]=p;}
     const g=data.game;if(!g||!lessons.some(l=>l.id===g.lessonId))return result;
     const l=lessonById(g.lessonId);const max=zoneCount(l);
@@ -16,7 +16,13 @@ export function parseSaved(raw:string|null):Saved {
     if(!Array.isArray(g.locations)||!validLength||!g.locations.every((x:unknown)=>typeof x==='number'&&Number.isInteger(x)&&x>=-1&&x<max))return result;
     const base=newGame(l);const phases=['play','predict','question','try','restore','explain','added','success'];
     const validNumber=(v:unknown)=>typeof v==='number'&&Number.isInteger(v)&&v>=0&&v<=12;
-    result.game={...base,locations:g.locations,phase:phases.includes(g.phase)?g.phase:'play',answer:validNumber(g.answer)?g.answer:null,prediction:validNumber(g.prediction)?g.prediction:null,helped:g.helped===true,attempts:Number.isInteger(g.attempts)&&g.attempts>=0?g.attempts:0,tutorialStep:l.kind==='tutorial'&&Number.isInteger(g.tutorialStep)?Math.max(0,Math.min(2,g.tutorialStep)):0};
+    let seats:(number|null)[]=Array(g.locations.length).fill(null);
+    if(l.kind==='train'){
+      if(!Array.isArray(g.seats)||g.seats.length!==g.locations.length)return result;
+      seats=g.seats;
+      if(!g.locations.every((z:number,i:number)=>z===-1?seats[i]===null:Number.isInteger(seats[i])&&seats[i]!>=0&&seats[i]!<l.divisor&&g.locations.every((other:number,j:number)=>i===j||other!==z||seats[j]!==seats[i])))return result;
+    }
+    result.game={...base,locations:g.locations,seats,phase:phases.includes(g.phase)?g.phase:'play',answer:validNumber(g.answer)?g.answer:null,remainderAnswer:validNumber(g.remainderAnswer)?g.remainderAnswer:null,prediction:validNumber(g.prediction)?g.prediction:null,helped:g.helped===true,attempts:Number.isInteger(g.attempts)&&g.attempts>=0?g.attempts:0,tutorialStep:l.kind==='tutorial'&&Number.isInteger(g.tutorialStep)?Math.max(0,Math.min(2,g.tutorialStep)):0};
     // Inconsistent old sessions are safely restarted; progress remains intact.
     const restored=result.game;
     const c=counts(restored,l),pool=poolCount(restored),check=evaluate(restored,l);
@@ -24,7 +30,7 @@ export function parseSaved(raw:string|null):Saved {
       ||(restored.phase==='predict'&&l.kind!=='predict')
       ||(restored.phase==='added'&&g.locations.length!==8)
       ||(restored.phase==='explain'&&!(g.locations.length===7&&c.every(n=>n===3)&&pool===1))
-      ||(restored.phase==='success'&&(!check.ok||restored.answer!==check.expected||(l.kind==='predict'&&restored.prediction!==check.expected)))
+      ||(restored.phase==='success'&&(!check.ok||restored.answer!==check.expected||(l.kind==='predict'&&restored.prediction!==check.expected)||(['train','delivery'].includes(l.kind)&&restored.remainderAnswer!==g.locations.length%l.divisor)))
       ||(restored.phase==='question'&&!check.ok))result.game=base;
     return result;
   }catch{return result;}

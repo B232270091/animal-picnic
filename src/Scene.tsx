@@ -3,9 +3,10 @@ import * as THREE from 'three';
 import type {Lesson} from './lessons';
 import {zoneCount} from './lessons';
 import {counts,poolCount,type Game} from './game';
+import {createAnimal,poseAnimal,type AnimalRig} from './rig';
 
 type Point={x:number;y:number};
-type Props={game:Game;lesson:Lesson;selected:number|null;onSelect:(id:number|null)=>void;onMove:(id:number,to:number)=>void;reduced:boolean;flowers:boolean;mat:boolean;disabled?:boolean};
+type Props={game:Game;lesson:Lesson;selected:number|null;onSelect:(id:number|null)=>void;onMove:(id:number,to:number)=>void;reduced:boolean;flowers:boolean;mat:boolean;disabled?:boolean;showCounts?:boolean};
 const palette=['#f1c777','#d59879','#b5bf94','#e8ae95','#a3bac9','#c4abd0'];
 const animalNames={rabbit:'Туулай',bear:'Бамбарууш',fox:'Үнэг'};
 export function zonePositions(l:Lesson,mobile:boolean):THREE.Vector3[]{
@@ -33,30 +34,6 @@ function sphere(parent:THREE.Object3D,color:string,scale:[number,number,number],
 }
 function cylinder(parent:THREE.Object3D,color:string,r1:number,r2:number,height:number,position:[number,number,number]){
   const mesh=new THREE.Mesh(new THREE.CylinderGeometry(r1,r2,height,36),material(color));mesh.position.set(...position);mesh.castShadow=true;mesh.receiveShadow=true;parent.add(mesh);return mesh;
-}
-function animal(kind:'rabbit'|'bear'|'fox',index:number){
-  const g=new THREE.Group(),fur=kind==='rabbit'?'#f7ead6':kind==='bear'?'#ac784e':'#de8946';
-  sphere(g,fur,[.65,.7,.49],[0,.77,0]);sphere(g,fur,[.71,.66,.57],[0,1.68,0]);
-  sphere(g,'#f8e8ce',[.41,.43,.13],[0,.82,.44]);
-  for(const s of [-1,1]){
-    sphere(g,fur,[.24,.18,.36],[s*.43,.2,.25]);
-    const arm=sphere(g,fur,[.2,.4,.21],[s*.58,.88,.17]);arm.rotation.z=s*.28;
-    if(kind==='rabbit'){
-      const ear=sphere(g,fur,[.19,.65,.17],[s*.31,2.42,-.06]);ear.rotation.z=-s*.13;
-      const inner=sphere(g,'#e9b8ad',[.093,.46,.055],[s*.32,2.45,.095]);inner.rotation.z=-s*.13;
-    } else if(kind==='bear'){
-      sphere(g,fur,[.27,.29,.2],[s*.5,2.15,-.02]);sphere(g,'#d8a67d',[.15,.16,.08],[s*.5,2.17,.16]);
-    }else {
-      const ear=new THREE.Mesh(new THREE.ConeGeometry(.29,.66,3),material(fur));ear.position.set(s*.49,2.23,0);ear.rotation.y=Math.PI/2;ear.rotation.z=-s*.14;g.add(ear);
-      sphere(g,'#f7e6d1',[.36,.29,.2],[s*.24,1.43,.43]);
-    }
-    sphere(g,'#342c24',[.06,.085,.055],[s*.24,1.73,.529]);
-    sphere(g,'#ffffff',[.018,.023,.015],[s*.24-.016,1.76,.574]);
-    sphere(g,'#e8a695',[.115,.058,.029],[s*.41,1.49,.48]);
-  }
-  sphere(g,kind==='rabbit'?'#ba8277':'#47342b',[.07,.053,.057],[0,1.49,.597]);
-  const smile=new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-.10,1.35,.554),new THREE.Vector3(0,1.30,.58),new THREE.Vector3(.10,1.35,.554)]),new THREE.LineBasicMaterial({color:'#745642'}));g.add(smile);
-  cylinder(g,palette[index%palette.length],.54,.56,.12,[0,1.11,.03]);return g;
 }
 function food(kind:string){
   const g=new THREE.Group();
@@ -99,11 +76,11 @@ export default function Scene(props:Props){
     for(const x of [-10,-8.5,8.7,11])tree(scene,x,-5.8,1+(Math.abs(x)%2)*.23);
     for(let i=0;i<12;i++){const x=Math.sin(i*2.8)*10,z=-5+Math.cos(i*1.8)*2;if(Math.abs(x)<5)continue;sphere(scene,'#b1c28d',[.6,.3,.45],[x,.1,z]);}
     if(latest.current.flowers)for(const x of [-6.7,6.8])for(let i=0;i<4;i++){const z=-1+i*1.1;for(let p=0;p<5;p++)sphere(scene,'#f6d37c',[.12,.04,.12],[x+Math.cos(p*1.26)*.13,.09,z+Math.sin(p*1.26)*.13]);sphere(scene,'#d09540',[.07,.06,.07],[x,.12,z]);}
-    const interactive=new THREE.Group();scene.add(interactive);let itemMeshes:THREE.Group[]=[],targets:THREE.Vector3[]=[],rings:THREE.Mesh[]=[],mobile=false,dragId:number|null=null,dragPoint=new THREE.Vector3();let frame=0;
+    const interactive=new THREE.Group();scene.add(interactive);let itemMeshes:THREE.Group[]=[],targets:THREE.Vector3[]=[],rings:THREE.Mesh[]=[],friends:AnimalRig[]=[],mobile=false,dragId:number|null=null,dragPoint=new THREE.Vector3();let frame=0;let previousLocations=[...latest.current.game.locations],reactions:number[]=[],celebrate=0,previousPhase=latest.current.game.phase;
     const project=(v:THREE.Vector3):Point=>{const p=v.clone().project(camera);return {x:(p.x+1)*50,y:(1-p.y)*50};};
     const dispose=(obj:THREE.Object3D)=>obj.traverse(child=>{const m=child as THREE.Mesh;if(m.geometry)m.geometry.dispose();if(m.material)(Array.isArray(m.material)?m.material:[m.material]).forEach(mat=>mat.dispose());});
     const build=()=>{
-      dispose(interactive);interactive.clear();rings=[];itemMeshes=[];
+      dispose(interactive);interactive.clear();rings=[];itemMeshes=[];friends=[];
       const {game:g,lesson:l}=latest.current,positions=zonePositions(l,mobile);
       positions.forEach((pos,i)=>{
         const plate=new THREE.Group();plate.position.copy(pos);interactive.add(plate);
@@ -112,7 +89,7 @@ export default function Scene(props:Props){
           for(let k=0;k<2;k++){const ring=new THREE.Mesh(new THREE.TorusGeometry(1.23,.045,6,40),material('#986e46'));ring.rotation.x=Math.PI/2;ring.position.y=.05+k*.10;plate.add(ring);}
         }else {
           cylinder(plate,palette[i],1.48,1.30,.14,[0,0,0]);cylinder(plate,'#fff5dd',1.32,1.29,.08,[0,.08,0]);
-          const friend=animal(l.animals[i],i);friend.position.set(pos.x,0,pos.z-1.75);if(mobile&&positions.length===3)friend.scale.setScalar(.85);interactive.add(friend);
+          const friend=createAnimal(l.animals[i],i);friend.root.position.set(pos.x,0,pos.z-1.75);if(mobile&&positions.length===3)friend.root.scale.setScalar(.85);interactive.add(friend.root);friends.push(friend);
         }
         const ring=new THREE.Mesh(new THREE.TorusGeometry(l.kind==='group'?1.35:1.57,.055,6,48),material('#5c8350'));ring.rotation.x=Math.PI/2;ring.position.set(pos.x,.27,pos.z);ring.visible=false;rings.push(ring);interactive.add(ring);
       });
@@ -125,6 +102,7 @@ export default function Scene(props:Props){
       const {game:g,lesson:l}=latest.current;
       if(itemMeshes.length!==g.locations.length){build();return;}
       targets=foodPositions(g,l,mobile);
+      g.locations.forEach((z,i)=>{if(z>=0&&previousLocations[i]!==z)reactions[z]=.7;});previousLocations=[...g.locations];
       const pos=zonePositions(l,mobile);
       setLayout({items:targets.map(p=>project(p.clone().add(new THREE.Vector3(0,.28,0)))),zones:pos.map(project),pool:project(new THREE.Vector3(0,.2,mobile?4:3.2)),labels:pos.map(p=>project(p.clone().add(new THREE.Vector3(0,0,1.35))))});
     };
@@ -135,9 +113,12 @@ export default function Scene(props:Props){
     api.current={update,drag:(id,x,y)=>{const rect=host.current!.getBoundingClientRect();ray.setFromCamera(new THREE.Vector2((x-rect.left)/rect.width*2-1,1-(y-rect.top)/rect.height*2),camera);ray.ray.intersectPlane(plane,dragPoint);dragId=id;},release:()=>{dragId=null;}};
     const observer=new ResizeObserver(resize);observer.observe(host.current);resize();
     let last=0;const animate=(time:number)=>{
-      frame=requestAnimationFrame(animate);if(time-last<30)return;last=time;
+      frame=requestAnimationFrame(animate);if(time-last<30)return;const dt=last?Math.min(.5,(time-last)/1000):0;last=time;
       const {selected,reduced,game}=latest.current;
-      itemMeshes.forEach((m,i)=>{const target=dragId===i?dragPoint:targets[i].clone().add(new THREE.Vector3(0,selected===i?.23:0,0));if(reduced)m.position.copy(target);else m.position.lerp(target,.25);m.scale.setScalar(selected===i?1.18:1);});
+      itemMeshes.forEach((m,i)=>{const target=dragId===i?dragPoint:targets[i].clone().add(new THREE.Vector3(0,selected===i?.23:0,0));if(reduced)m.position.copy(target);else m.position.lerp(target,1-Math.exp(-12*dt));m.scale.setScalar(selected===i?1.18:1);});
+      if(game.phase==='success'&&previousPhase!=='success')celebrate=.85;previousPhase=game.phase;
+      friends.forEach((r,i)=>{const react=reactions[i]??0,quiet=['question','try','restore','explain'].includes(game.phase);const point=selected===null?undefined:itemMeshes[selected]?.position;
+        poseAnimal(r,{state:celebrate>0?'celebrate':react>0?'pick':quiet?'wait':point?'attend':'idle',time:time/1000,progress:celebrate>0?1-celebrate/.85:1-react/.7,reduced,look:point??(react>0?zonePositions(latest.current.lesson,mobile)[i]:undefined)});reactions[i]=Math.max(0,react-dt);});celebrate=Math.max(0,celebrate-dt);
       rings.forEach(r=>r.visible=selected!==null);
       if(game.phase==='explain')itemMeshes.forEach((m,i)=>{if(game.locations[i]===-1)m.scale.setScalar(reduced?1.25:1.2+Math.sin(time*.004)*.1);});
       renderer.render(scene,camera);
@@ -160,7 +141,7 @@ export default function Scene(props:Props){
     <span className="scene-note">{props.lesson.kind==='group'?'САГСНУУДАА ДҮҮРГЭЕ':'МАНАЙ ПИКНИК'}</span>
     {status==='ready'&&<div className="scene-controls">
       {[...layout.zones.map((p,i)=>({...p,id:i})),{...layout.pool,id:-1}].map(p=><button key={p.id} className={`drop-zone ${p.id===-1?'pool-zone':''} ${hot===p.id?'hot':''}`} style={{left:`${p.x}%`,top:`${p.y}%`}} onClick={()=>{if(props.selected!==null&&!blocked)props.onMove(props.selected,p.id);}} disabled={blocked} aria-label={p.id===-1?'Төв тавцанд буцаах':`${props.lesson.kind==='group'?'Сагс':'Таваг'} ${p.id+1}: ${c[p.id]} зүйл. Сонгосон зүйлийг энд тавих`} data-testid={`zone-${p.id}`}/>)}
-      {layout.labels.map((p,i)=><button className="plate-label" data-testid={`plate-${i}`} key={i} disabled={blocked} onClick={()=>props.selected!==null&&props.onMove(props.selected,i)} style={{left:`${p.x}%`,top:`${p.y}%`}} aria-label={`${i+1}-р ${props.lesson.kind==='group'?'сагс':'таваг'}т тавих, ${c[i]} зүйлтэй`}>{props.lesson.kind==='group'?`${i+1}-р сагс`:animalNames[props.lesson.animals[i]]} <b>{c[i]}</b></button>)}
+      {layout.labels.map((p,i)=><button className="plate-label" data-testid={`plate-${i}`} key={i} disabled={blocked} onClick={()=>props.selected!==null&&props.onMove(props.selected,i)} style={{left:`${p.x}%`,top:`${p.y}%`}} aria-label={`${i+1}-р ${props.lesson.kind==='group'?'сагс':'таваг'}т тавих${props.showCounts!==false?`, ${c[i]} зүйлтэй`:''}`}>{props.lesson.kind==='group'?`${i+1}-р сагс`:animalNames[props.lesson.animals[i]]} {props.showCounts!==false&&<b>{c[i]}</b>}</button>)}
       {layout.items.map((p,i)=><button key={i} aria-label={`${i+1}-р ${props.lesson.food==='carrot'?'лууван':'алим'}, ${props.game.locations[i]===-1?'төв тавцанд':`${props.game.locations[i]+1}-р ${props.lesson.kind==='group'?'сагсанд':'тавагт'}`}`} data-testid={`item-${i}`} className={`food-handle ${props.selected===i?'selected':''}`} style={{left:`${p.x}%`,top:`${p.y}%`}} disabled={blocked}
         onPointerDown={e=>{if(e.button!==0||gesture.current)return;gesture.current={id:i,x:e.clientX,y:e.clientY,dragged:false,pointer:e.pointerId};e.currentTarget.setPointerCapture(e.pointerId);}}
         onPointerMove={e=>{const g=gesture.current;if(!g||g.pointer!==e.pointerId)return;if(Math.hypot(e.clientX-g.x,e.clientY-g.y)>7)g.dragged=true;if(g.dragged){props.onSelect(i);api.current?.drag(i,e.clientX,e.clientY);setHot(toZone(e.clientX,e.clientY));}}}
@@ -168,7 +149,7 @@ export default function Scene(props:Props){
         onPointerCancel={()=>{gesture.current=null;api.current?.release();setHot(null);props.onSelect(null);}}
         onClick={()=>{if(clickBlocked.current){clickBlocked.current=false;return;}if(props.selected!==null&&props.game.locations[props.selected]!==props.game.locations[i])props.onMove(props.selected,props.game.locations[i]);else props.onSelect(props.selected===i?null:i);}}><span className="sr-only">Сонгох</span></button>)}
     </div>}
-    <button className="pool-label" data-testid="plate--1" disabled={blocked} onClick={()=>props.selected!==null&&props.onMove(props.selected,-1)} style={{left:`${layout.pool.x}%`,top:`${layout.pool.y+13}%`}}>Төв тавцанд <b>{poolCount(props.game)}</b></button>
+    <button className="pool-label" data-testid="plate--1" disabled={blocked} onClick={()=>props.selected!==null&&props.onMove(props.selected,-1)} style={{left:`${layout.pool.x}%`,top:`${layout.pool.y+13}%`}}>Төв тавцанд {props.showCounts!==false&&<b>{poolCount(props.game)}</b>}</button>
     <div className="scene-bottom"><span>✦ Хоолыг бүтнээр нь өгнө</span><span>{props.game.locations.length} {props.lesson.food==='carrot'?'лууван':'алим'} · {props.lesson.kind==='group'?`сагс бүрд ${props.lesson.divisor}`:`${props.lesson.divisor} найз`}</span></div>
   </div>;
 }
