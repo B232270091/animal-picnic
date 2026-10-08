@@ -4,3 +4,5 @@ import App from './App';
 import './styles.css';
 import './forest.css';
 createRoot(document.getElementById('root')!).render(<React.StrictMode><App/></React.StrictMode>);
+
+import './voice.css';

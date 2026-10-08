@@ -2,6 +2,9 @@ import {counts,poolCount,type Game} from './game';
 import type {Lesson} from './lessons';
 export function lessonCopy(game:Game,l:Lesson,demo:boolean){
  const c=counts(game,l),phase=game.phase;
+ if(phase==='equal'||phase==='unequal')return {title:'Хоёулаа ижил тоотой юу?',explanation:'Хоёр тавгийг тоолоод тохирох зургийг сонгоорой.'};
+ if(phase==='leftover')return {title:'Хэдэн лууван үлдсэн бэ?',explanation:'Төвд үлдсэн лууванг тоолоод тоон хариугаа сонгоорой.'};
+ if(phase==='question'&&game.quotientChecked)return {title:l.kind==='train'?'Хэдэн амьтан үлдсэн бэ?':l.kind==='delivery'?'Агуулахад хэд үлдсэн бэ?':'Төвд хэд үлдсэн бэ?',explanation:'Үлдсэн зүйлсээ тоолоод хариугаа шалгаарай.'};
  if(l.kind==='train')return {
   title:phase==='success'?'Бүтэн бүлгүүдээ оллоо!':phase==='question'?'Хэдэн вагон дүүрсэн бэ?':'Амьтнаа суулгая',
   explanation:phase==='success'?`Нэг вагонд ${l.divisor} амьтан сууна. Хариу нь дүүрсэн вагоны тоо. Үлдсэн ${poolCount(game)} амьтан хүлээх талбайд хамтдаа байна.`:phase==='question'?'Эхлээд дүүрсэн вагоны тоог, дараа нь хүлээх талбайд үлдсэн амьтдын тоог сонгоорой.':'Амьтан сонгоод хоосон суудал дээр товшоорой. Дутуу вагон бүтэн бүлэг биш. Тэндэх амьтдыг хүлээх талбайд буцааж болно.'

@@ -1,6 +1,6 @@
 import {build} from 'esbuild';
 import {readFile,writeFile} from 'node:fs/promises';
-const result=await build({entryPoints:['src/main.tsx'],bundle:true,write:false,outdir:'standalone',format:'iife',platform:'browser',target:'es2022',minify:true,define:{'process.env.NODE_ENV':'"production"'},legalComments:'none'});
+const result=await build({entryPoints:['src/main.tsx'],bundle:true,write:false,outdir:'standalone',format:'iife',platform:'browser',target:'es2022',minify:true,define:{'process.env.NODE_ENV':'"production"','import.meta.env.BASE_URL':'"./"'},legalComments:'none'});
 const js=result.outputFiles.find(f=>f.path.endsWith('.js')).text.replace(/<\/script/gi,'<\\/script');
 const css=result.outputFiles.find(f=>f.path.endsWith('.css')).text;
 const favicon=await readFile('public/favicon.svg','utf8');

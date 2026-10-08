@@ -7,7 +7,7 @@ const make = (id: string, kind: Kind, total: number, divisor: number, food: Food
   title: kind === 'tutorial' ? 'Хамтдаа хуваая' : kind === 'predict' ? 'Эхлээд бодоод, дараа нь шалгая' : kind === 'group' ? 'Сагсанд бүлэглэе' : kind === 'special' || kind === 'remainder' ? 'Үлдэгдлийг нээе' : 'Өөрөө хуваая',
   instruction: kind === 'group' ? `${total} алимыг сагс бүрд ${divisor}-оор хийе. Хэдэн сагс болох вэ?` : `${total} ${food === 'carrot' ? 'лууванг' : 'алимыг'} ${divisor} ${kind === 'special' ? 'туулайд' : 'найздаа'} тэнцүү хувааж өгье.`,
   hint: kind === 'group' ? `Нэг сагсанд ${divisor} алим хийгээд дараагийн сагс руу ороорой.` : 'Нэг нэгээр нь өгөөд үзье. Таваг бүрийг тоолоорой.',
-  animals: kind === 'special' ? ['rabbit', 'rabbit'] : ['rabbit', 'bear', 'fox'].slice(0, divisor) as Lesson['animals'],
+  animals: kind === 'special' || id === 'share-0' ? ['rabbit', 'rabbit'] : ['rabbit', 'bear', 'fox'].slice(0, divisor) as Lesson['animals'],
 });
 export const lessons: Lesson[] = [
   make('together-4-2', 'tutorial', 4, 2),
@@ -37,4 +37,4 @@ export const chapterOf = (l:Lesson) => l.mixed?chapters[5]:chapters.find(c=>c.ki
 export const inChapter = (l:Lesson,ch:typeof chapters[number]) => chapterOf(l).number===ch.number;
 export const placeName = (l:Lesson) => l.kind==='train'?'вагон':l.kind==='delivery'?'байшин':l.kind==='group'?'сагс':'таваг';
 export const poolName = (l:Lesson) => l.kind==='train'?'Хүлээх талбай':l.kind==='delivery'?'Агуулах':'Төв тавцан';
-export const needsRemainderAnswer = (l:Lesson) => l.kind==='train'||l.kind==='delivery';
+export const needsRemainderAnswer = (l:Lesson) => l.kind==='train'||l.kind==='delivery'||l.kind==='remainder';

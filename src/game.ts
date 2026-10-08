@@ -1,9 +1,9 @@
 import { lessonById, type Lesson, zoneCount, isGrouping, needsRemainderAnswer, placeName } from './lessons';
-export type Phase = 'play' | 'predict' | 'question' | 'try' | 'restore' | 'explain' | 'added' | 'success';
-export interface Board { locations: number[]; seats: (number|null)[]; phase: Phase; answer: number | null; remainderAnswer: number | null; prediction: number | null; helped: boolean; attempts: number; tutorialStep: number; message: string }
+export type Phase = 'play' | 'predict' | 'question' | 'equal' | 'leftover' | 'unequal' | 'try' | 'restore' | 'explain' | 'added' | 'success';
+export interface Board { locations: number[]; seats: (number|null)[]; phase: Phase; answer: number | null; remainderAnswer: number | null; quotientChecked:boolean; prediction: number | null; helped: boolean; attempts: number; tutorialStep: number; message: string }
 export interface Game extends Board { lessonId: string; history: Board[] }
-export type Action = {type:'move'; item:number; to:number; seat?:number} | {type:'answer';value:number} | {type:'remainderAnswer';value:number} | {type:'predict';value:number} | {type:'check'} | {type:'hint'} | {type:'undo'} | {type:'restart'} | {type:'add'} | {type:'demo'};
-export const newGame = (lesson: Lesson): Game => ({lessonId:lesson.id,locations:Array(lesson.total).fill(-1),seats:Array(lesson.total).fill(null),phase:lesson.kind==='predict'?'predict':'play',answer:null,remainderAnswer:null,prediction:null,helped:false,attempts:0,tutorialStep:0,message:'',history:[]});
+export type Action = {type:'move'; item:number; to:number; seat?:number} | {type:'compare';equal:boolean} | {type:'answer';value:number} | {type:'remainderAnswer';value:number} | {type:'predict';value:number} | {type:'check'} | {type:'hint'} | {type:'undo'} | {type:'restart'} | {type:'add'} | {type:'demo'};
+export const newGame = (lesson: Lesson): Game => ({lessonId:lesson.id,locations:Array(lesson.total).fill(-1),seats:Array(lesson.total).fill(null),phase:lesson.kind==='predict'?'predict':'play',answer:null,remainderAnswer:null,quotientChecked:false,prediction:null,helped:false,attempts:0,tutorialStep:0,message:'',history:[]});
 export const counts = (g: Board, l: Lesson) => Array.from({length:zoneCount(l)},(_,i)=>g.locations.filter(x=>x===i).length);
 export const poolCount = (g: Board) => g.locations.filter(x=>x===-1).length;
 export function evaluate(g: Board, l: Lesson): {ok:boolean;expected:number;message:string} {
@@ -23,19 +23,19 @@ export function evaluate(g: Board, l: Lesson): {ok:boolean;expected:number;messa
 function remember(g: Game): Board {const {history:_,lessonId:__,...board}=g; return {...board,locations:[...g.locations],seats:[...g.seats]};}
 function move(g: Game,item:number,to:number,requestedSeat?:number): Game {
   const l=lessonById(g.lessonId);
-  if(['success','explain','predict'].includes(g.phase)||!Number.isInteger(item)||item<0||item>=g.locations.length||!Number.isInteger(to)||to< -1||to>=zoneCount(l)) return g;
+  if(['success','explain','predict','equal','leftover','unequal'].includes(g.phase)||!Number.isInteger(item)||item<0||item>=g.locations.length||!Number.isInteger(to)||to< -1||to>=zoneCount(l)) return g;
   let seat:number|null=null;
   if(l.kind==='train'&&to>=0){
     seat=requestedSeat??Array.from({length:l.divisor},(_,i)=>i).find(s=>!g.locations.some((z,j)=>j!==item&&z===to&&g.seats[j]===s))??null;
     if(seat===null||!Number.isInteger(seat)||seat<0||seat>=l.divisor||g.locations.some((z,j)=>j!==item&&z===to&&g.seats[j]===seat))return {...g,message:'Энэ суудал эзэнтэй байна. Өөр хоосон суудал сонгоорой.'};
   }
   if(g.locations[item]===to&&g.seats[item]===seat)return g;
-  const next={...g,locations:g.locations.map((v,i)=>i===item?to:v),seats:g.seats.map((v,i)=>i===item?seat:v),answer:null,remainderAnswer:null,message:'',history:[...g.history.slice(-99),remember(g)]};
+  const next={...g,locations:g.locations.map((v,i)=>i===item?to:v),seats:g.seats.map((v,i)=>i===item?seat:v),answer:null,remainderAnswer:null,quotientChecked:false,message:'',history:[...g.history.slice(-99),remember(g)]};
   if(g.phase==='question') next.phase='play';
   if(l.kind==='special'&&next.locations.length===7){
     const c=counts(next,l), pool=poolCount(next);
-    if(g.phase==='play'&&c.every(n=>n===3)&&pool===1)next.phase='try';
-    if(g.phase==='try'&&c.includes(4)&&c.includes(3)&&pool===0)next.phase='restore';
+    if(g.phase==='play'&&c.every(n=>n===3)&&pool===1)next.phase='equal';
+    if(g.phase==='try'&&c.includes(4)&&c.includes(3)&&pool===0)next.phase='unequal';
     if(g.phase==='restore'&&c.every(n=>n===3)&&pool===1)next.phase='explain';
   }
   return next;
@@ -46,13 +46,19 @@ export function reducer(g: Game,a: Action): Game {
     case 'move':return move(g,a.item,a.to,a.seat);
     case 'restart':return newGame(l);
     case 'undo': {const prev=g.history.at(-1);return prev?{...g,...prev,helped:g.helped||prev.helped,history:g.history.slice(0,-1)}:g;}
-    case 'answer': return Number.isInteger(a.value)&&a.value>=0&&a.value<=12?{...g,answer:a.value,message:''}:g;
+    case 'answer': return Number.isInteger(a.value)&&a.value>=0&&a.value<=12?{...g,answer:a.value,quotientChecked:false,remainderAnswer:null,message:''}:g;
+    case 'compare': {
+      if(l.kind!=='special'||!['equal','unequal'].includes(g.phase))return g;
+      const correct=a.equal===(g.phase==='equal');
+      return correct?{...g,phase:g.phase==='equal'?'leftover':'restore',remainderAnswer:null,message:''}:{...g,attempts:g.attempts+1,message:'Хоёр тавгийг нэг нэгээр нь тоолоод дахин сонгоорой.'};
+    }
     case 'remainderAnswer': return Number.isInteger(a.value)&&a.value>=0&&a.value<=12?{...g,remainderAnswer:a.value,message:''}:g;
     case 'predict': return Number.isInteger(a.value)&&a.value>=0&&a.value<=12?{...g,prediction:a.value,phase:g.phase==='predict'?'play':g.phase,message:'Одоо хуваарилж, өөрийн хариуг шалгаарай.'}:g;
     case 'add':return l.kind==='special'&&g.phase==='explain'?{...g,locations:[...g.locations,-1],seats:[...g.seats,null],phase:'added',answer:null,history:[],message:'Одоо 8 луувантай боллоо. Үлдсэн хоёрыг хуваарилаарай.'}:g;
     case 'demo': {if(l.kind!=='tutorial'||g.tutorialStep>=2||g.phase!=='play')return g;const item=g.locations.findIndex(x=>x===-1);return {...move(g,item,g.tutorialStep),tutorialStep:g.tutorialStep+1};}
     case 'hint': {
       if(g.phase==='success'||g.phase==='explain')return g;
+      if(['equal','leftover','unequal'].includes(g.phase))return {...g,helped:true,message:'Яарах хэрэггүй. Нэг нэгээр нь тоолоод үзье.'};
       if(!g.helped)return {...g,helped:true,message:l.hint};
       if(evaluate(g,l).ok&&!(l.kind==='special'&&g.locations.length===7))return {...g,message:'Хуваарилалт бэлэн байна. Одоо бүлгүүдээ, үлдсэн зүйлсээ тоолоод хариулаарай.'};
       const c=counts(g,l);let to=-1, item=-1;
@@ -65,6 +71,8 @@ export function reducer(g: Game,a: Action): Game {
     }
     case 'check': {
       if(g.phase==='success'||g.phase==='explain')return g;
+      if(g.phase==='leftover')return g.remainderAnswer===1?{...g,phase:'try',message:''}:{...g,attempts:g.attempts+1,message:'Төвд үлдсэн лууванг тоолоод дахин сонгоорой.'};
+      if(g.phase==='equal'||g.phase==='unequal')return {...g,message:'Хоёр тавгийг харьцуулаад зурагтай хариуг сонгоорой.'};
       if(g.phase==='predict')return {...g,message:'Эхлээд өөрийн бодсон хариуг сонгоорой.'};
       if(l.kind==='special'&&g.locations.length===7)return {...g,message:g.phase==='try'?'Үлдсэн лууванг нэг тавагт өгч туршаарай.':g.phase==='restore'?'4 луувантай тавагнаас нэгийг төв рүү буцаагаарай.':'Туулай бүрд нэг нэгээр нь өгөөд үзье.'};
       const result=evaluate(g,l);
@@ -72,10 +80,10 @@ export function reducer(g: Game,a: Action): Game {
       if(g.phase!=='question')return {...g,phase:'question',answer:null,message:isGrouping(l)?'Бүтэн бүлгүүд бэлэн боллоо. Дүүрсэн бүлгүүд болон үлдсэн зүйлсээ өөрөө тоолоорой.':'Тэнцүү хуваариллаа. Нэг бүлэгт ногдсон болон үлдсэн зүйлсээ өөрөө тоолоорой.'};
       if(g.answer===null)return {...g,message:'Тоон товчноос хариугаа сонгоорой.'};
       if(g.answer!==result.expected)return {...g,attempts:g.attempts+1,message:isGrouping(l)?`Дүүрсэн ${placeName(l)} хэд байна вэ? Бүтэн бүлгүүдээ тоолоод дахин сонгоё.`:`Нэг ${placeName(l)} дээр хэд байна вэ? Дахин тоолоод сонгоё.`};
-      if(needsRemainderAnswer(l)&&g.remainderAnswer===null)return {...g,message:l.kind==='train'?'Хүлээх талбайд хэдэн амьтан үлдсэн бэ? Тоог сонгоорой.':'Агуулахад хэдэн алим үлдсэн бэ? Тоог сонгоорой.'};
-      if(needsRemainderAnswer(l)&&g.remainderAnswer!==g.locations.length%l.divisor)return {...g,attempts:g.attempts+1,message:'Үлдсэн зүйлсээ дахин тоолоод үзье. Хуваарилсан болон үлдсэн нийлээд анхны нийттэй тэнцэнэ.'};
+      if(needsRemainderAnswer(l)&&g.remainderAnswer===null)return {...g,quotientChecked:true,message:l.kind==='train'?'Хүлээх талбайд хэдэн амьтан үлдсэн бэ? Тоог сонгоорой.':l.kind==='delivery'?'Агуулахад хэдэн алим үлдсэн бэ? Тоог сонгоорой.':'Төвд хэдэн зүйл үлдсэн бэ? Тоог сонгоорой.'};
+      if(needsRemainderAnswer(l)&&g.remainderAnswer!==g.locations.length%l.divisor)return {...g,quotientChecked:true,attempts:g.attempts+1,message:'Үлдсэн зүйлсээ дахин тоолоод үзье. Хуваарилсан болон үлдсэн нийлээд анхны нийттэй тэнцэнэ.'};
       if(l.kind==='predict'&&g.prediction!==result.expected)return {...g,message:'Таваг дээрх тоо анхны таамагтай чинь таарч байна уу? Таамгаа өөрчилж болно.'};
-      return {...g,phase:'success',message:result.message};
+      return {...g,phase:'success',quotientChecked:true,message:result.message};
     }
   }
 }
